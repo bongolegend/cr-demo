@@ -16,12 +16,36 @@ const sessions = new Map();
 
 import OpenAI from "openai";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-async function aiResponse(messages) {
-  let completion = await openai.chat.completions.create({
+async function aiResponseStream(messages, ws) {
+  const stream = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: messages,
+    stream: true,
   });
-  return completion.choices[0].message.content;
+
+  const assistantSegments = [];
+  console.log("Received response chunks:");
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content || "";
+
+    // Send each token
+    console.log(content);
+    ws.send(
+      JSON.stringify({
+        type: "text",
+        token: content,
+        last: false,
+      })
+    );
+    assistantSegments.push(content);
+  }
+
+  const finalResponse = assistantSegments.join("");
+  console.log("Assistant response complete:", finalResponse);
+  messages.push({
+    role: "assistant",
+    content: finalResponse,
+  });
 }
 
 const fastify = Fastify({ logger: true });
@@ -56,14 +80,13 @@ fastify.register(async function (fastify) {
           const messages = sessions.get(ws.callSid);
           messages.push({ role: "user", content: message.voicePrompt });
 
-          const response = await aiResponse(messages);
-          messages.push({ role: "assistant", content: response });
-          console.log("AI response:", response);
+          await aiResponseStream(messages, ws);
 
+          // Send the final "last" token when streaming completes
           ws.send(
             JSON.stringify({
               type: "text",
-              token: response,
+              token: "",
               last: true,
             })
           );
