@@ -9,24 +9,97 @@ const DOMAIN = process.env.NGROK_URL;
 const WS_URL = `wss://${DOMAIN}/ws`;
 const WELCOME_GREETING =
   "Hi! I am a voice assistant powered by Twilio and Open A I . Ask me anything!";
-const SYSTEM_PROMPT =
-  "You are a helpful assistant. This conversation is being translated to voice, so answer carefully. When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.";
-
+const SYSTEM_PROMPT = `You are a helpful assistant. This conversation is being translated to voice, so answer carefully.
+  When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.
+  You should use the 'get_programming_joke' function only when the user is asking for a programming joke (or a very close prompt, such as developer or software engineering joke). For other requests, including other types of jokes, you should use your own knowledge.`;
 const sessions = new Map();
 
 import OpenAI from "openai";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+import axios from "axios";
+const tools = [
+  {
+    type: "function",
+    function: {
+      name: "get_programming_joke",
+      description: "Fetches a programming joke",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+  },
+];
+
+async function getJoke() {
+  // Use jokeapi.dev to fetch a clean joke
+  const response = await axios.get(
+    "https://v2.jokeapi.dev/joke/Programming?safe-mode"
+  );
+  const data = response.data;
+  return data.type === "single"
+    ? data.joke
+    : `${data.setup} ... ${data.delivery}`;
+}
+
+const toolFunctions = {
+  get_programming_joke: async () => getJoke(),
+};
+
 async function aiResponseStream(messages, ws) {
   const stream = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: messages,
     stream: true,
+    tools: tools,
   });
 
   const assistantSegments = [];
   console.log("Received response chunks:");
   for await (const chunk of stream) {
     const content = chunk.choices[0]?.delta?.content || "";
+    const toolCalls = chunk.choices[0].delta.tool_calls || [];
+
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.function.name;
+      const toolFn = toolFunctions[toolName];
+
+      if (toolFn) {
+        const toolResponse = await toolFn();
+
+        // Append tool call request and the result with the "tool" role
+        messages.push({
+          role: "assistant",
+          tool_calls: [
+            {
+              id: toolCall.id,
+              function: {
+                name: toolName,
+                arguments: "{}",
+              },
+              type: "function",
+            },
+          ],
+        });
+
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: toolResponse,
+        });
+
+        // Send the completed tool response to the client
+        ws.send(
+          JSON.stringify({ type: "text", token: toolResponse, last: true })
+        );
+        assistantSegments.push(toolResponse);
+        console.log(`Fetched ${toolName}:`, toolResponse);
+      }
+    }
 
     // Send each token
     console.log(content);
