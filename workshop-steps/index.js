@@ -12,6 +12,18 @@ const WELCOME_GREETING =
 const SYSTEM_PROMPT =
   "You are a helpful assistant. This conversation is being translated to voice, so answer carefully. When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.";
 
+import OpenAI from "openai";
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+async function aiResponse(prompt) {
+  let completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: prompt },
+    ],
+  });
+  return completion.choices[0].message.content;
+}
 
 const fastify = Fastify({ logger: true });
 fastify.register(fastifyWs);
@@ -30,7 +42,26 @@ fastify.all("/twiml", async (request, reply) => {
 fastify.register(async function (fastify) {
   fastify.get("/ws", { websocket: true }, (ws, req) => {
     ws.on("message", async (data) => {
-      // TODO - handle incoming messages from ConversationRelay
+      const message = JSON.parse(data);
+
+      switch (message.type) {
+        case "prompt":
+          console.log("Processing prompt:", message.voicePrompt);
+          const response = await aiResponse(message.voicePrompt);
+          console.log("AI response:", response);
+
+          ws.send(
+            JSON.stringify({
+              type: "text",
+              token: response,
+              last: true,
+            })
+          );
+          break;
+        default:
+          console.warn("Unknown message type received:", message.type);
+          break;
+      }
     });
 
     ws.on("close", () => {
