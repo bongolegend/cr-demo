@@ -17,7 +17,14 @@ const fastify = Fastify({ logger: true });
 fastify.register(fastifyWs);
 fastify.register(fastifyFormbody);
 fastify.all("/twiml", async (request, reply) => {
-  // TODO - handle incoming call to Twilio Phone Number
+  reply.type("text/xml").send(
+    `<?xml version="1.0" encoding="UTF-8"?>
+    <Response>
+      <Connect>
+        <ConversationRelay url="${WS_URL}" welcomeGreeting="${WELCOME_GREETING}" />
+      </Connect>
+    </Response>`
+  );
 });
 
 fastify.register(async function (fastify) {
