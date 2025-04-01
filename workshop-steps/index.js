@@ -12,15 +12,14 @@ const WELCOME_GREETING =
 const SYSTEM_PROMPT =
   "You are a helpful assistant. This conversation is being translated to voice, so answer carefully. When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.";
 
+const sessions = new Map();
+
 import OpenAI from "openai";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-async function aiResponse(prompt) {
+async function aiResponse(messages) {
   let completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
+    messages: messages,
   });
   return completion.choices[0].message.content;
 }
@@ -45,9 +44,20 @@ fastify.register(async function (fastify) {
       const message = JSON.parse(data);
 
       switch (message.type) {
+        case "setup":
+          const callSid = message.callSid;
+          console.log("Setup for call:", callSid);
+          ws.callSid = callSid;
+          sessions.set(callSid, [{ role: "system", content: SYSTEM_PROMPT }]);
+          break;
         case "prompt":
           console.log("Processing prompt:", message.voicePrompt);
-          const response = await aiResponse(message.voicePrompt);
+
+          const messages = sessions.get(ws.callSid);
+          messages.push({ role: "user", content: message.voicePrompt });
+
+          const response = await aiResponse(messages);
+          messages.push({ role: "assistant", content: response });
           console.log("AI response:", response);
 
           ws.send(
@@ -66,6 +76,7 @@ fastify.register(async function (fastify) {
 
     ws.on("close", () => {
       console.log("WebSocket connection closed");
+      sessions.delete(ws.callSid);
     });
   });
 });
