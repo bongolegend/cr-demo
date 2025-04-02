@@ -121,6 +121,43 @@ async function aiResponseStream(messages, ws) {
   });
 }
 
+function handleInterrupt(callSid, utteranceUntilInterrupt) {
+  const conversation = sessions.get(callSid);
+
+  let updatedConversation = [...conversation];
+
+  const interruptedIndex = updatedConversation.findIndex(
+    (message) =>
+      message.role === "assistant" &&
+      message.content.includes(utteranceUntilInterrupt),
+  );
+
+  if (interruptedIndex !== -1) {
+    const interruptedMessage = updatedConversation[interruptedIndex];
+
+    const interruptPosition = interruptedMessage.content.indexOf(
+      utteranceUntilInterrupt,
+    );
+    const truncatedContent = interruptedMessage.content.substring(
+      0,
+      interruptPosition + utteranceUntilInterrupt.length,
+    );
+
+    updatedConversation[interruptedIndex] = {
+      ...interruptedMessage,
+      content: truncatedContent,
+    };
+
+    updatedConversation = updatedConversation.filter(
+      (message, index) =>
+        !(index > interruptedIndex && message.role === "assistant"),
+    );
+  }
+
+  sessions.set(callSid, updatedConversation);
+}
+
+
 const fastify = Fastify({ logger: true });
 fastify.register(fastifyWs);
 fastify.register(fastifyFormbody);
@@ -163,6 +200,10 @@ fastify.register(async function (fastify) {
               last: true,
             })
           );
+          break;
+        case "interrupt":
+          console.log("Handling interruption; last utterance: ", message.utteranceUntilInterrupt);
+          handleInterrupt(ws.callSid, message.utteranceUntilInterrupt);
           break;
         default:
           console.warn("Unknown message type received:", message.type);
