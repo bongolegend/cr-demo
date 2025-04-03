@@ -122,39 +122,41 @@ async function aiResponseStream(messages, ws) {
 }
 
 function handleInterrupt(callSid, utteranceUntilInterrupt) {
-  const conversation = sessions.get(callSid);
+  let conversation = sessions.get(callSid);
 
-  let updatedConversation = [...conversation];
-
-  const interruptedIndex = updatedConversation.findIndex(
+  // Find the relevant assistant message
+  const interruptedIndex = conversation.findIndex(
     (message) =>
       message.role === "assistant" &&
-      message.content.includes(utteranceUntilInterrupt),
+      message.content.includes(utteranceUntilInterrupt)
   );
 
-  if (interruptedIndex !== -1) {
-    const interruptedMessage = updatedConversation[interruptedIndex];
-
-    const interruptPosition = interruptedMessage.content.indexOf(
-      utteranceUntilInterrupt,
-    );
-    const truncatedContent = interruptedMessage.content.substring(
-      0,
-      interruptPosition + utteranceUntilInterrupt.length,
-    );
-
-    updatedConversation[interruptedIndex] = {
-      ...interruptedMessage,
-      content: truncatedContent,
-    };
-
-    updatedConversation = updatedConversation.filter(
-      (message, index) =>
-        !(index > interruptedIndex && message.role === "assistant"),
-    );
+  // If there's no message to interrupt, exit early
+  if (interruptedIndex === -1) {
+    return;
   }
 
-  sessions.set(callSid, updatedConversation);
+  // Truncate message content at the interruption point
+  const interruptedMessage = conversation[interruptedIndex];
+  const interruptPosition = interruptedMessage.content.indexOf(
+    utteranceUntilInterrupt
+  );
+  conversation[interruptedIndex] = {
+    ...interruptedMessage,
+    content: interruptedMessage.content.slice(
+      0,
+      interruptPosition + utteranceUntilInterrupt.length
+    ),
+  };
+
+  // Remove assistant messages after the interrupted one
+  conversation = conversation.filter(
+    (message, index) =>
+      !(index > interruptedIndex && message.role === "assistant")
+  );
+
+  // Update the stored session data
+  sessions.set(callSid, conversation);
 }
 
 
