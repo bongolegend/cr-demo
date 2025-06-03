@@ -7,11 +7,14 @@ dotenv.config();
 const PORT = process.env.PORT || 8080;
 const DOMAIN = process.env.NGROK_URL;
 const WS_URL = `wss://${DOMAIN}/ws`;
-const WELCOME_GREETING =
-  "Hi! I am a voice assistant powered by Twilio and Open A I . Ask me anything!";
-const SYSTEM_PROMPT = `You are a helpful assistant. This conversation is being translated to voice, so answer carefully.
-  When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.
-  You should use the 'get_programming_joke' function only when the user is asking for a programming joke (or a very close prompt, such as developer or software engineering joke). For other requests, including other types of jokes, you should use your own knowledge.`;
+const WELCOME_GREETING = `Hi! Thank you for calling Wiggles Veterinary. How can I help you today?`;
+const SYSTEM_PROMPT = `You are a helpful assistant for a veterinary clinic, so you will be asked about animal care, appointments, and other related topics.
+  This conversation is being translated to voice, so answer carefully.
+  When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. 
+  Do not include bullet points, asterisks, or special symbols.
+    
+  Make sure you get the pet's name, the owner's name, and the type of animal (dog, cat, etc.) if relevant.
+  If someone asks for an appointment call the "get_appointments" function to fetch appointment options.`;
 const sessions = new Map();
 
 import OpenAI from "openai";
@@ -22,139 +25,103 @@ const tools = [
   {
     type: "function",
     function: {
-      name: "get_programming_joke",
-      description: "Fetches a programming joke",
+      name: "find_appointments",
+      description:
+        "Find available appointments based on user preferences, such as mornings or a specific week.",
       parameters: {
         type: "object",
-        properties: {},
-        required: [],
-        additionalProperties: false,
+        properties: {
+          preferences: {
+            type: "string",
+            description:
+              "Preferences for appointment search, e.g., 'mornings, week of june ninth'.",
+          },
+        },
+        required: ["preferences"],
       },
-      strict: true,
     },
   },
 ];
 
-async function getJoke() {
-  // Use jokeapi.dev to fetch a clean joke
+async function getAppointments(preferences) {
   const response = await axios.get(
-    "https://v2.jokeapi.dev/joke/Programming?safe-mode"
+    `https://appointment-finder-4175.twil.io/appointments?preferences=${encodeURIComponent(
+      preferences
+    )}`
   );
   const data = response.data;
-  return data.type === "single"
-    ? data.joke
-    : `${data.setup} ... ${data.delivery}`;
+  return data.availableAppointments
+    .map((appointment) => appointment.displayTime)
+    .join(", ");
 }
-
-const toolFunctions = {
-  get_programming_joke: async () => getJoke(),
-};
 
 async function aiResponseStream(messages, ws) {
   const stream = await openai.chat.completions.create({
     model: "gpt-4o-mini",
-    messages: messages,
+    messages,
     stream: true,
     tools: tools,
   });
 
-  const assistantSegments = [];
-  console.log("Received response chunks:");
+  const finalToolCalls = {};
+
   for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content || "";
-    const toolCalls = chunk.choices[0].delta.tool_calls || [];
+    const choice = chunk.choices[0];
+    const contentDelta = choice.delta?.content || "";
 
+    console.log("Received chunk:", contentDelta);
+
+    const toolCalls = choice.delta.tool_calls || [];
+    const finishReason = choice.finish_reason;
+
+    // Send text content as it arrives
+    if (contentDelta) {
+      ws.send(
+        JSON.stringify({
+          type: "text",
+          token: contentDelta,
+          last: false,
+        })
+      );
+    }
+    console.log("Sent AI response chunk:", contentDelta);
+
+    // Accumulate function arguments
+    // See: https://platform.openai.com/docs/guides/function-calling?api-mode=chat#streaming
     for (const toolCall of toolCalls) {
-      const toolName = toolCall.function.name;
-      const toolFn = toolFunctions[toolName];
+      const { index } = toolCall;
 
-      if (toolFn) {
-        const toolResponse = await toolFn();
-
-        // Append tool call request and the result with the "tool" role
-        messages.push({
-          role: "assistant",
-          tool_calls: [
-            {
-              id: toolCall.id,
-              function: {
-                name: toolName,
-                arguments: "{}",
-              },
-              type: "function",
-            },
-          ],
-        });
-
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: toolResponse,
-        });
-
-        // Send the completed tool response to the client
-        ws.send(
-          JSON.stringify({ type: "text", token: toolResponse, last: true })
-        );
-        assistantSegments.push(toolResponse);
-        console.log(`Fetched ${toolName}:`, toolResponse);
+      if (!finalToolCalls[index]) {
+        finalToolCalls[index] = toolCall;
       }
+
+      finalToolCalls[index].function.arguments += toolCall.function.arguments;
     }
 
-    // Send each token
-    console.log(content);
-    ws.send(
-      JSON.stringify({
-        type: "text",
-        token: content,
-        last: false,
-      })
-    );
-    assistantSegments.push(content);
+    if (finishReason === "tool_calls") {
+      for (const toolCallIdx in finalToolCalls) {
+        const toolCall = finalToolCalls[toolCallIdx];
+        try {
+          const parsedArgs = JSON.parse(toolCall.function.arguments);
+          console.log("Calling tool:", toolCall.function.name, parsedArgs);
+          const result = await getAppointments(parsedArgs.preferences);
+          const toolResponse =
+            "We found the following appointment options: " + result;
+
+          ws.send(
+            JSON.stringify({
+              type: "text",
+              token: toolResponse,
+              last: false,
+            })
+          );
+          console.log(toolResponse);
+        } catch (err) {
+          console.error("Error processing tool call:", err);
+        }
+      }
+    }
   }
-
-  const finalResponse = assistantSegments.join("");
-  console.log("Assistant response complete:", finalResponse);
-  messages.push({
-    role: "assistant",
-    content: finalResponse,
-  });
-}
-
-function handleInterrupt(callSid, utteranceUntilInterrupt) {
-  const conversation = sessions.get(callSid);
-
-  let updatedConversation = [...conversation];
-
-  const interruptedIndex = updatedConversation.findIndex(
-    (message) =>
-      message.role === "assistant" &&
-      message.content.includes(utteranceUntilInterrupt)
-  );
-
-  if (interruptedIndex !== -1) {
-    const interruptedMessage = updatedConversation[interruptedIndex];
-
-    const interruptPosition = interruptedMessage.content.indexOf(
-      utteranceUntilInterrupt
-    );
-    const truncatedContent = interruptedMessage.content.substring(
-      0,
-      interruptPosition + utteranceUntilInterrupt.length
-    );
-
-    updatedConversation[interruptedIndex] = {
-      ...interruptedMessage,
-      content: truncatedContent,
-    };
-
-    updatedConversation = updatedConversation.filter(
-      (message, index) =>
-        !(index > interruptedIndex && message.role === "assistant")
-    );
-  }
-
-  sessions.set(callSid, updatedConversation);
 }
 
 const fastify = Fastify({ logger: true });
@@ -165,7 +132,11 @@ fastify.all("/twiml", async (request, reply) => {
     `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
       <Connect>
-        <ConversationRelay url="${WS_URL}" welcomeGreeting="${WELCOME_GREETING}" />
+        <ConversationRelay 
+          url="${WS_URL}" 
+          welcomeGreeting="${WELCOME_GREETING}"
+          intelligenceService="GAccc5f80fa2ead0213c278c9a6be3ad0f"
+        />
       </Connect>
     </Response>`
   );
@@ -201,11 +172,7 @@ fastify.register(async function (fastify) {
           );
           break;
         case "interrupt":
-          console.log(
-            "Handling interruption; last utterance: ",
-            message.utteranceUntilInterrupt
-          );
-          handleInterrupt(ws.callSid, message.utteranceUntilInterrupt);
+          console.log("Response interrupted");
           break;
         default:
           console.warn("Unknown message type received:", message.type);

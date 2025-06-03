@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Vet AI WebSocket Test</title>
+  <style>
+    body { font-family: Arial; max-width: 600px; margin: 0 auto; padding: 2em; }
+    label, input { display:block; margin: 0.5em 0;}
+    textarea { width:100%; height:6em;}
+    .stream { border:1px solid #ccc; padding:1em; margin-top:1em; min-height:3em; }
+    button { margin-top: 1em; }
+  </style>
+</head>
+<body>
+  <h2>Vet AI WebSocket Test</h2>
+  <label>WebSocket URL:</label>
+  <input type="text" id="wsurl" value="ws://localhost:8080/ws" style="width: 100%">
+  <button id="connectBtn">Connect</button>
+  <hr>
+
+  <label>Call SID:</label>
+  <input type="text" id="callsid" value="testcall1" style="width: 100%">
+  <button id="setupBtn">Send 'setup'</button>
+
+  <hr>
+  <label>User Message ("voicePrompt"):</label>
+  <textarea id="prompt"></textarea>
+  <button id="sendBtn">Send 'prompt'</button>
+  <button id="interruptBtn" style="float:right;background:salmon">Send 'interrupt'</button>
+
+  <div style="clear:both"></div>
+
+  <h3>Streamed Response:</h3>
+  <div class="stream" id="response"></div>
+
+  <script>
+    let ws;
+    let isConnected = false;
+
+    function log(msg) {
+      document.getElementById('response').innerText += msg;
+    }
+
+    function resetResponse() {
+      document.getElementById('response').innerText = '';
+    }
+
+    document.getElementById('connectBtn').onclick = () => {
+      resetResponse();
+      if (ws) ws.close();
+      let url = document.getElementById('wsurl').value.trim();
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        isConnected = true;
+        log("[WS connected]\n");
+      };
+      ws.onclose = () => {
+        isConnected = false;
+        log("\n[WS disconnected]\n");
+      };
+      ws.onerror = e => {
+        isConnected = false;
+        log("\n[WS error]\n");
+      };
+      ws.onmessage = evt => {
+        try {
+          let msg = JSON.parse(evt.data);
+          if (msg.type === "text") {
+            if (msg.token) log(msg.token);
+            if (msg.last) log("\n[END]\n");
+          } else {
+            log('\n[Other message type: '+msg.type+']\n');
+          }
+        } catch (e) {
+          log('\n[Non-JSON message: ' + evt.data + ']\n');
+        }
+      };
+    };
+
+    document.getElementById('setupBtn').onclick = () => {
+      if (!ws || ws.readyState !== 1) { alert('Connect first!'); return; }
+      let sid = document.getElementById('callsid').value.trim();
+      ws.send(JSON.stringify({ type: "setup", callSid: sid }));
+      log("[setup sent]\n");
+    };
+
+    document.getElementById('sendBtn').onclick = () => {
+      if (!ws || ws.readyState !== 1) { alert('Connect first!'); return; }
+      let prompt = document.getElementById('prompt').value.trim();
+      if (!prompt) { alert('Prompt is empty'); return; }
+      ws.send(JSON.stringify({ type: "prompt", voicePrompt: prompt }));
+      log("[prompt sent]\n");
+    };
+
+    document.getElementById('interruptBtn').onclick = () => {
+      if (!ws || ws.readyState !== 1) { alert('Connect first!'); return; }
+      ws.send(JSON.stringify({ type: "interrupt" }));
+      log("\n[interrupt sent]\n");
+    };
+  </script>
+</body>
+</html>
