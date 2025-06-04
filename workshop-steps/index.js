@@ -67,7 +67,6 @@ async function aiResponseStream(messages, ws) {
   const finalToolCalls = {};
   const assistantSegments = [];
   console.log("Received response chunks:");
-
   for await (const chunk of stream) {
     const content = chunk.choices[0]?.delta?.content || "";
 
