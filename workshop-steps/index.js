@@ -7,6 +7,7 @@ dotenv.config();
 const PORT = process.env.PORT || 8080;
 const DOMAIN = process.env.NGROK_URL;
 const WS_URL = `wss://${DOMAIN}/ws`;
+const INTELLIGENCE_SERVICE_SID = "GAccc5f80fa2ead0213c278c9a6be3ad0f"; // or put this in an .env variable
 const WELCOME_GREETING =
   "Hi! Thank you for calling Wiggles Veterinary. How can I help you today?";
 const SYSTEM_PROMPT = `You are a helpful assistant for a veterinary clinic, so you will be asked about animal care, appointments, and other related topics.
@@ -140,7 +141,11 @@ fastify.all("/twiml", async (request, reply) => {
     `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
       <Connect>
-        <ConversationRelay url="${WS_URL}" welcomeGreeting="${WELCOME_GREETING}" />
+        <ConversationRelay
+          url="${WS_URL}"
+          welcomeGreeting="${WELCOME_GREETING}"
+          intelligenceService="${INTELLIGENCE_SERVICE_SID}"
+        />
       </Connect>
     </Response>`
   );
