@@ -48,7 +48,7 @@ fastify.get("/twiml", async (request, reply) => {
     `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
       <Connect>
-        <ConversationRelay url="${WS_URL}" welcomeGreeting="${WELCOME_GREETING}" />
+        <ConversationRelay url="${WS_URL}" welcomeGreeting="${WELCOME_GREETING}" interruptBySpeech="true" />
       </Connect>
     </Response>`
   );
