@@ -3,41 +3,42 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16
-    container_name: cr-demo-postgres
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
       POSTGRES_DB: db0
-    network_mode: host
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d db0"]
-      interval: 30s
+      interval: 1s
       timeout: 10s
       retries: 3
 
   migrations:
     image: postgres:16
-    container_name: cr-demo-migrations
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: db0
       NEW_DB: ${NEW_DB:-0}
-    network_mode: host
+      # Environment variables for the scripts
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: db0
+      DB_USER: admin
+      DB_PASSWORD: password
     volumes:
       - ./postgres:/postgres
     command: >
       sh -c "
-        echo 'Waiting for PostgreSQL to be ready...' &&
-        until pg_isready -h localhost -p 5432 -U $POSTGRES_USER; do
-          sleep 2;
-        done &&
         if [ \"$NEW_DB\" = \"1\" ]; then
+          echo 'Clearing database...' &&
+          ./postgres/clear-db.sh &&
           echo 'Running migrations...' &&
-          # ./postgres/run-migrations.sh;
+          ./postgres/run-migrations.sh;
         else
           echo 'Skipping migrations (NEW_DB not set to 1)';
         fi
