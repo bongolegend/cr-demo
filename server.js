@@ -11,25 +11,24 @@ const DOMAIN = process.env.NGROK_URL;
 const WS_URL = `wss://${DOMAIN}/ws`;
 const WELCOME_GREETING =
   "Hey, this is your coach. Is now a good time?";
-const SYSTEM_PROMPT = `You are a life coach. You draw from the philosophy of Tony Robbins. You believe in optimism and the power of the individual to shape their own destiny. 
+const SYSTEM_PROMPT = `You are a life coach. Be positive and encouraging, but be succinct. 
 
-You check in with the user every day, asking them the following questions. After each question, wait for the user to finish speaking.
-1. What are your wins for the day?
-2. What are you most proud of?
-3. What are you going to do differently tomorrow?
-4. How did you do towards your goals for the week?
-5. What's on the agenda for tomorrow?
-6. What is your why?
-7. What are you grateful for?
+Ask the user the following questions, but not word for word.
+- What are your wins for the day?
+- What are you going to do differently tomorrow?
+- What is motivating you right now?
+- What are you grateful for?
 
-Don't just ask the questions like a robot. Be conversational and natural. Ask follow up questions if needed. Change the wording to be more casual, or more aggressive, depending on the user's mood.
-You can linger on a question for a while, asking follow up questions if the answer is not clear.
+Once the user has answered all the questions, recap their responses, and tell them you'll check in with them tomorrow.
 
-This conversation is being translated to voice, so answer carefully. 
-When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.`;
+This conversation is being translated to voice, so answer carefully. When you respond, please spell out all numbers, for example twenty not 20. 
+Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.`;
 const sessions = new Map();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Track active processing for each session
+const activeProcessing = new Map();
 
 
 async function pauseTheRightAmountOfTime(conversation) {
@@ -184,7 +183,7 @@ function combineUserMessagesSinceLastAssistant(conversation) {
   return newConversation;
 }
 
-async function aiResponseStream(conversation, ws) {
+async function aiResponseStream(conversation, ws, processingToken) {
 
   const stream = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -195,6 +194,12 @@ async function aiResponseStream(conversation, ws) {
   const assistantSegments = [];
 
   for await (const chunk of stream) {
+    // Check if processing was cancelled
+    if (processingToken && processingToken.cancelled) {
+      console.log("Processing cancelled during streaming, stopping response");
+      return;
+    }
+    
     const content = chunk.choices[0]?.delta?.content || "";
   
     ws.send(
@@ -264,6 +269,17 @@ fastify.register(async function (fastify) {
             content: message.voicePrompt,
           });
 
+          // Cancel any existing processing for this session
+          const existingProcessing = activeProcessing.get(ws.callSid);
+          if (existingProcessing) {
+            console.log("Cancelling previous processing...");
+            existingProcessing.cancelled = true;
+          }
+
+          // Create new processing token
+          const processingToken = { cancelled: false };
+          activeProcessing.set(ws.callSid, processingToken);
+
           // Combine user messages since last assistant message
           sessionData.conversation = combineUserMessagesSinceLastAssistant(sessionData.conversation);
 
@@ -271,12 +287,17 @@ fastify.register(async function (fastify) {
           if (!userDone) {
             console.log("Waiting 10 seconds...");
             for (let i = 10; i > 0; i--) {
+              // Check if processing was cancelled
+              if (processingToken.cancelled) {
+                console.log("Processing cancelled, stopping countdown");
+                return;
+              }
               console.log(`${i} seconds...`);
               await new Promise(resolve => setTimeout(resolve, 1000));
             }
           }
 
-          aiResponseStream(sessionData.conversation, ws);
+          aiResponseStream(sessionData.conversation, ws, processingToken);
           break;
         case "interrupt":
           console.log(
@@ -294,6 +315,7 @@ fastify.register(async function (fastify) {
     ws.on("close", () => {
       console.log("WebSocket connection closed");
       sessions.delete(ws.callSid);
+      activeProcessing.delete(ws.callSid);
     });
   });
 });
