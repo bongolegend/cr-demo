@@ -10,90 +10,193 @@ const PORT = process.env.PORT || 8080;
 const DOMAIN = process.env.NGROK_URL;
 const WS_URL = `wss://${DOMAIN}/ws`;
 const WELCOME_GREETING =
-  "Hi! I am a voice assistant powered by Twilio and Open A I . Ask me anything!";
-const SYSTEM_PROMPT = `You are a helpful assistant. This conversation is being translated to voice, so answer carefully. 
-When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.
-You should use the 'get_programming_joke' function only when the user is asking for a programming joke (or a very close prompt, such as developer or software engineering joke). For other requests, including other types of jokes, you should use your own knowledge.`;
+  "Hey, this is your coach. Is now a good time?";
+const SYSTEM_PROMPT = `You are a life coach. You draw from the philosophy of Tony Robbins. You believe in optimism and the power of the individual to shape their own destiny. 
+
+You check in with the user every day, asking them the following questions. After each question, wait for the user to finish speaking.
+1. What are your wins for the day?
+2. What are you most proud of?
+3. What are you going to do differently tomorrow?
+4. How did you do towards your goals for the week?
+5. What's on the agenda for tomorrow?
+6. What is your why?
+7. What are you grateful for?
+
+Don't just ask the questions like a robot. Be conversational and natural. Ask follow up questions if needed. Change the wording to be more casual, or more aggressive, depending on the user's mood.
+You can linger on a question for a while, asking follow up questions if the answer is not clear.
+
+This conversation is being translated to voice, so answer carefully. 
+When you respond, please spell out all numbers, for example twenty not 20. Do not include emojis in your responses. Do not include bullet points, asterisks, or special symbols.`;
 const sessions = new Map();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function getJoke() {
-  // Use jokeapi.dev to fetch a clean joke
-  const response = await axios.get(
-    "https://v2.jokeapi.dev/joke/Programming?safe-mode"
-  );
-  const data = response.data;
-  return data.type === "single"
-    ? data.joke
-    : `${data.setup} ... ${data.delivery}`;
+
+async function pauseTheRightAmountOfTime(conversation) {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Analyze the conversation and determine if the user is done speaking.
+
+Rules:
+- If the assistant was previously just asking for confirmation or making small talk, return 0 (no pause)
+- If the assistant asked a real open-ended question and the user is talking about their day, return 10 (pause for 10 seconds)
+
+Return ONLY a number: 0 or 10.`
+        },
+        {
+          role: "user",
+          content: `Analyze this conversation and determine the pause duration (0 or 10):
+
+${conversation.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`
+        }
+      ],
+      max_tokens: 10,
+      temperature: 0
+    });
+
+    const pauseDuration = parseInt(response.choices[0].message.content.trim());
+    
+    if (pauseDuration === 10) {
+      console.log("Pausing for 10 seconds before responding...");
+      await new Promise(resolve => setTimeout(resolve, 10000));
+    } else {
+      console.log("No pause needed, responding immediately");
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Error determining pause duration:", error);
+    return null;
+  }
+}
+
+async function isUserDoneTalking(conversation) {
+  try {
+    // Get the most recent assistant message
+    const assistantMessages = conversation.filter(msg => msg.role === "assistant");
+    if (assistantMessages.length === 0) {
+      return true; // No assistant message, proceed normally
+    }
+    
+    const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+    
+    // Get the most recent user message
+    const userMessages = conversation.filter(msg => msg.role === "user");
+    if (userMessages.length === 0) {
+      return true; // No user message, proceed normally
+    }
+    
+    const lastUserMessage = userMessages[userMessages.length - 1];
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are analyzing a conversation between a life coach and a user. 
+
+The coach asks reflection questions like:
+- What are your wins for the day?
+- What are you most proud of?
+- What are you going to do differently tomorrow?
+- How did you do towards your goals for the week?
+- What's on the agenda for tomorrow?
+- What is your why?
+- What are you grateful for?
+
+Your task: Determine if the user is done talking after the coach's most recent question.
+
+Rules:
+- If the user sounds like they are mid-sentence, return 0 (user is not done)
+- If the coach's last message was one of these questions AND the user's response doesn't end with phrases like "that's all", "that's it", "that's everything", "nothing else", etc., return 0 (user is not done)
+- If the user's response ends with "that's all" or similar phrases, return 1 (user is done)
+
+Return ONLY: 1 (user done) or 0 (user not done)`
+        },
+        {
+          role: "user",
+          content: `Analyze this conversation:
+
+Coach's last message: "${lastAssistantMessage.content}"
+
+User's last message: "${lastUserMessage.content}"
+
+Is the user done talking? Return 1 or 0.`
+        }
+      ],
+      max_tokens: 5,
+      temperature: 0
+    });
+
+    const result = parseInt(response.choices[0].message.content.trim());
+    console.log(result === 1 ? 'User DONE' : 'User NOT DONE');
+    
+    return result === 1;
+  } catch (error) {
+    console.error("Error determining if user is done talking:", error);
+    return true; // Default to proceeding if there's an error
+  }
+}
+
+function combineUserMessagesSinceLastAssistant(conversation) {
+  // Find the index of the last assistant message
+  let lastAssistantIndex = -1;
+  for (let i = conversation.length - 1; i >= 0; i--) {
+    if (conversation[i].role === "assistant") {
+      lastAssistantIndex = i;
+      break;
+    }
+  }
+  
+  // If no assistant message found, return the conversation as is
+  if (lastAssistantIndex === -1) {
+    return conversation;
+  }
+  
+  // Collect all user messages after the last assistant message
+  const userMessagesAfterAssistant = [];
+  for (let i = lastAssistantIndex + 1; i < conversation.length; i++) {
+    if (conversation[i].role === "user") {
+      userMessagesAfterAssistant.push(conversation[i].content);
+    }
+  }
+  
+  // If no user messages after assistant, return conversation as is
+  if (userMessagesAfterAssistant.length === 0) {
+    return conversation;
+  }
+  
+  // Create new conversation with combined user message
+  const newConversation = conversation.slice(0, lastAssistantIndex + 1);
+  
+  // Add the combined user message
+  newConversation.push({
+    role: "user",
+    content: userMessagesAfterAssistant.join(" ")
+  });
+  
+  console.log(`Combined ${userMessagesAfterAssistant.length} user messages into one: "${userMessagesAfterAssistant.join(" ")}"`);
+  
+  return newConversation;
 }
 
 async function aiResponseStream(conversation, ws) {
-  const tools = [
-    {
-      type: "function",
-      function: {
-        name: "get_programming_joke",
-        description: "Fetches a programming joke",
-        parameters: {
-          type: "object",
-          properties: {},
-          required: [],
-          additionalProperties: false,
-        },
-        strict: true,
-      },
-    },
-  ];
 
   const stream = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: conversation,
-    tools: tools,
     stream: true,
   });
 
   const assistantSegments = [];
 
-  console.log("Received response chunks:");
   for await (const chunk of stream) {
     const content = chunk.choices[0]?.delta?.content || "";
-    const toolCalls = chunk.choices[0].delta.tool_calls || [];
-
-    for (const toolCall of toolCalls) {
-      if (toolCall.function.name === "get_programming_joke") {
-        const joke = await getJoke();
-
-        // Append tool call request and the result with the "tool" role
-        conversation.push({
-          role: "assistant",
-          tool_calls: [
-            {
-              id: toolCall.id,
-              function: {
-                name: toolCall.function.name,
-                arguments: "{}",
-              },
-              type: "function",
-            },
-          ],
-        });
-
-        conversation.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: joke,
-        });
-
-        // Send the final "last" token when streaming completes
-        ws.send(JSON.stringify({ type: "text", token: joke, last: true }));
-        assistantSegments.push(joke);
-        console.log("Fetched joke:", joke);
-      }
-    }
-
-    console.log("Chunk:", content);
+  
     ws.send(
       JSON.stringify({
         type: "text",
@@ -112,7 +215,6 @@ async function aiResponseStream(conversation, ws) {
       last: true,
     })
   );
-  console.log("Assistant response complete.");
 
   const sessionData = sessions.get(ws.callSid);
   sessionData.conversation.push({
@@ -120,7 +222,7 @@ async function aiResponseStream(conversation, ws) {
     content: assistantSegments.join(""),
   });
   console.log(
-    "Final accumulated response:",
+    "Assistant message:",
     JSON.stringify(assistantSegments.join(""))
   );
 }
@@ -155,12 +257,24 @@ fastify.register(async function (fastify) {
           });
           break;
         case "prompt":
-          console.log("Processing prompt:", message.voicePrompt);
+          console.log("Received user input:", message.voicePrompt);
           const sessionData = sessions.get(ws.callSid);
           sessionData.conversation.push({
             role: "user",
             content: message.voicePrompt,
           });
+
+          // Combine user messages since last assistant message
+          sessionData.conversation = combineUserMessagesSinceLastAssistant(sessionData.conversation);
+
+          const userDone = await isUserDoneTalking(sessionData.conversation);
+          if (!userDone) {
+            console.log("Waiting 10 seconds...");
+            for (let i = 10; i > 0; i--) {
+              console.log(`${i} seconds...`);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
 
           aiResponseStream(sessionData.conversation, ws);
           break;
