@@ -13,6 +13,7 @@ const WELCOME_GREETING =
   "Hey, this is your coach. Is now a good time?";
 const SYSTEM_PROMPT = `You are a life coach. Be positive and encouraging, but be succinct. 
 
+First, tell the user that you're going to ask them a few questions, and ask them to say "that's all" when they're done answering.
 Ask the user the following questions, but not word for word.
 - What are your wins for the day?
 - What are you going to do differently tomorrow?
