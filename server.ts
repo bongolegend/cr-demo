@@ -8,12 +8,12 @@ import { getOrCreateUser } from "./services/userService";
 import { getOrCreateSession, getSessionByCallSid, updateSessionConversation } from "./services/sessionService";
 import { isUserDoneTalking } from "./services/conversationAnalysisService";
 import { combineUserMessagesSinceLastAssistant, handleInterrupt } from "./services/conversationParsingService";
-import { streamRespondToUserWithAI } from "./services/conversationExecutionService";
+import { respondToUser, askUserIfDoneTalking } from "./services/conversationExecutionService";
 
 dotenv.config();
 
-const PORT = process.env['PORT'] ? parseInt(process.env['PORT'] as string) : 8080;
-const DOMAIN = process.env['NGROK_URL'] || "localhost";
+const PORT = parseInt(process.env['PORT'] as string);
+const DOMAIN = process.env['NGROK_URL'];
 const WS_URL = `wss://${DOMAIN}/ws`;
 
 function getWelcomeGreeting(): string {
@@ -21,7 +21,7 @@ function getWelcomeGreeting(): string {
 }
 
 function getSystemPrompt(): string {
-  return readFileSync(join(process.cwd(), 'prompts', 'system0.txt'), 'utf8');
+  return readFileSync(join(process.cwd(), 'prompts', 'system1.txt'), 'utf8');
 }
 
 // Track active processing for each session
@@ -65,7 +65,7 @@ fastify.register(async function (fastify) {
           }
           const sessionData = await getSessionByCallSid(ws.callSid);
           if (sessionData && sessionData.conversation) {
-            const updatedConversation = [...sessionData.conversation, {
+            sessionData.conversation = [...sessionData.conversation, {
               role: "user",
               content: message.voicePrompt,
             }];
@@ -76,12 +76,11 @@ fastify.register(async function (fastify) {
             }
             const processingToken = { cancelled: false };
             activeProcessing.set(ws.callSid, processingToken);
-            const combinedConversation = combineUserMessagesSinceLastAssistant(updatedConversation);
-            await updateSessionConversation(sessionData.id, combinedConversation);
+            const combinedConversation = await combineUserMessagesSinceLastAssistant(sessionData);
             const userDone = await isUserDoneTalking(combinedConversation);
             if (!userDone) {
-              console.log("Waiting 10 seconds...");
-              for (let i = 10; i > 0; i--) {
+              console.log("Waiting 4 seconds...");
+              for (let i = 4; i > 0; i--) {
                 if (processingToken.cancelled) {
                   console.log("Processing cancelled, stopping countdown");
                   return;
@@ -89,8 +88,10 @@ fastify.register(async function (fastify) {
                 console.log(`${i} seconds...`);
                 await new Promise(resolve => setTimeout(resolve, 1000));
               }
+              await askUserIfDoneTalking(ws, sessionData);
+              break;
             }
-            streamRespondToUserWithAI(combinedConversation, ws, processingToken);
+            respondToUser(sessionData, ws, processingToken);
           } else {
             console.error("Session not found for call SID:", ws.callSid);
           }

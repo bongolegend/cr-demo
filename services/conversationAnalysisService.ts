@@ -20,7 +20,25 @@ export async function isUserDoneTalking(conversation: ConversationMessage[]): Pr
       messages: [
         {
           role: "system",
-          content: `You are analyzing a conversation between a life coach and a user. \n\nThe coach asks reflection questions like:\n- What are your wins for the day?\n- What are you most proud of?\n- What are you going to do differently tomorrow?\n- How did you do towards your goals for the week?\n- What's on the agenda for tomorrow?\n- What is your why?\n- What are you grateful for?\n\nYour task: Determine if the user is done talking after the coach's most recent question.\n\nRules:\n- If the user sounds like they are mid-sentence, return 0 (user is not done)\n- If the coach's last message was one of these questions AND the user's response doesn't end with phrases like \"that's all\", \"that's it\", \"that's everything\", \"nothing else\", etc., return 0 (user is not done)\n- If the user's response ends with \"that's all\" or similar phrases, return 1 (user is done)\n\nReturn ONLY: 1 (user done) or 0 (user not done)`
+          content: `You are analyzing a conversation between a life coach and a user.
+
+The coach asks reflection questions like:
+- What are your wins for the day?
+- What are you most proud of?
+- What are you going to do differently tomorrow?
+- How did you do towards your goals for the week?
+- What's on the agenda for tomorrow?
+- What is your why?
+- What are you grateful for?
+
+Your task: Determine if the user is done talking after the coach's most recent question.
+
+Rules:
+- If the user sounds like they are mid-sentence, return 0 (user is not done)
+- If the coach's last message was one of these questions AND the user's response doesn't end with phrases like "that's all", "that's it", "that's everything", "nothing else", etc., return 0 (user is not done)
+- If the user's response ends with "that's all" or similar phrases, return 1 (user is done)
+
+Return ONLY: 1 (user done) or 0 (user not done)`
         },
         {
           role: "user",

@@ -3,15 +3,43 @@ import { getSessionByCallSid, updateSessionConversation } from "./sessionService
 import { ConversationMessage } from "../models/conversations";
 
 /**
+ * Ask the user if they are done talking
+ * @param ws - WebSocket connection
+ * @param sessionData - The session data
+ */
+export async function askUserIfDoneTalking(ws: any, sessionData: any) {
+  const doneMessage = "Are you done with that question?";
+  
+  ws.send(
+    JSON.stringify({
+      type: "text",
+      token: doneMessage,
+      last: true,
+    })
+  );
+  
+  // Add the assistant message to the conversation
+  const updatedConversation = [...sessionData.conversation, {
+    role: "assistant",
+    content: doneMessage
+  }];
+  
+  // Update the session with the new conversation
+  await updateSessionConversation(sessionData.id, updatedConversation);
+  
+  console.log("Asked user if they are done talking");
+}
+
+/**
  * Stream AI response to user and update session conversation
- * @param conversation - The conversation messages
+ * @param sessionData - The session data
  * @param ws - WebSocket connection
  * @param processingToken - Token to track if processing was cancelled
  */
-export async function streamRespondToUserWithAI(conversation: ConversationMessage[], ws: any, processingToken: { cancelled: boolean }) {
+export async function respondToUser(sessionData: any, ws: any, processingToken: { cancelled: boolean }) {
   const stream = await openai.chat.completions.create({
     model: "gpt-4o",
-    messages: conversation,
+    messages: sessionData.conversation,
     stream: true,
   });
   const assistantSegments: string[] = [];
@@ -40,15 +68,15 @@ export async function streamRespondToUserWithAI(conversation: ConversationMessag
       last: true,
     })
   );
-  const sessionData = await getSessionByCallSid(ws.callSid);
-  if (sessionData && Array.isArray(sessionData.conversation)) {
-    const updatedConversation = [...sessionData.conversation, {
-      role: "assistant",
-      content: assistantSegments.join("")
-    }];
-    await updateSessionConversation(sessionData.id, updatedConversation);
-    console.log("Assistant message:", JSON.stringify(assistantSegments.join("")));
-  } else {
-    console.error("Session not found for call SID:", ws.callSid);
-  }
-} 
+  
+  // Add the assistant message to the conversation
+  const updatedConversation = [...sessionData.conversation, {
+    role: "assistant",
+    content: assistantSegments.join("")
+  }];
+  
+  // Update the session with the new conversation
+  await updateSessionConversation(sessionData.id, updatedConversation);
+  console.log("Assistant message:", JSON.stringify(assistantSegments.join("")));
+}
+
