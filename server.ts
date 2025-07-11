@@ -2,13 +2,12 @@ import Fastify, { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import fastifyWs from "@fastify/websocket";
 import fastifyFormBody from '@fastify/formbody';
 import dotenv from "dotenv";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { getOrCreateUser } from "./services/userService";
 import { getOrCreateSession, getSessionByCallSid, updateSessionConversation } from "./services/sessionService";
 import { isUserDoneTalking } from "./services/conversationAnalysisService";
 import { combineUserMessagesSinceLastAssistant, handleInterrupt } from "./services/conversationParsingService";
 import { respondToUser, askUserIfDoneTalking } from "./services/conversationExecutionService";
+import { getWelcomeGreeting, getSystemPrompt } from "./services/systemPromptService";
 
 dotenv.config();
 
@@ -16,13 +15,7 @@ const PORT = parseInt(process.env['PORT'] as string);
 const DOMAIN = process.env['NGROK_URL'];
 const WS_URL = `wss://${DOMAIN}/ws`;
 
-function getWelcomeGreeting(): string {
-  return readFileSync(join(process.cwd(), 'prompts', 'greeting0.txt'), 'utf8');
-}
 
-function getSystemPrompt(): string {
-  return readFileSync(join(process.cwd(), 'prompts', 'system1.txt'), 'utf8');
-}
 
 // Track active processing for each session
 const activeProcessing = new Map<string, { cancelled: boolean }>();
@@ -79,8 +72,8 @@ fastify.register(async function (fastify) {
             const combinedConversation = await combineUserMessagesSinceLastAssistant(sessionData);
             const userDone = await isUserDoneTalking(combinedConversation);
             if (!userDone) {
-              console.log("Waiting 4 seconds...");
-              for (let i = 4; i > 0; i--) {
+              console.log("Waiting 6 seconds...");
+              for (let i = 6; i > 0; i--) {
                 if (processingToken.cancelled) {
                   console.log("Processing cancelled, stopping countdown");
                   return;

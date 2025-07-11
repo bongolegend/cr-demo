@@ -24,19 +24,18 @@ export async function isUserDoneTalking(conversation: ConversationMessage[]): Pr
 
 The coach asks reflection questions like:
 - What are your wins for the day?
-- What are you most proud of?
 - What are you going to do differently tomorrow?
 - How did you do towards your goals for the week?
 - What's on the agenda for tomorrow?
-- What is your why?
-- What are you grateful for?
 
 Your task: Determine if the user is done talking after the coach's most recent question.
 
 Rules:
 - If the user sounds like they are mid-sentence, return 0 (user is not done)
-- If the coach's last message was one of these questions AND the user's response doesn't end with phrases like "that's all", "that's it", "that's everything", "nothing else", etc., return 0 (user is not done)
+- If the user is saying lots of filler words, like "um", "like", "you know", "you know what", etc., return 0 (user is not done)
 - If the user's response ends with "that's all" or similar phrases, return 1 (user is done)
+- If the user's response is just a single word, like "yes", "no", "maybe", etc., return 1 (user is done)
+- If the user's response sounds like a complete idea, spanning multiple sentences, return 1 (user is done)
 
 Return ONLY: 1 (user done) or 0 (user not done)`
         },
