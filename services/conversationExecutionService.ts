@@ -43,6 +43,10 @@ export async function respondToUser(sessionData: any, ws: any, processingToken: 
     messages: sessionData.conversation,
     stream: streaming,
   });
+  if (processingToken && processingToken.cancelled) {
+    console.log("Processing cancelled during streaming, stopping response");
+    return;
+  }
 
   let assistantMessage = "";
 
