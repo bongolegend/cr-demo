@@ -25,11 +25,10 @@ CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     twilio_call_sid VARCHAR(50),
-    twilio_conversation_sid VARCHAR(50),
-    twilio_participant_sid VARCHAR(50),
     websocket_id VARCHAR(100) NULL,
     twilio_query JSONB DEFAULT '{}'::jsonb,
     conversation JSONB DEFAULT '[]'::jsonb,
+    summary TEXT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

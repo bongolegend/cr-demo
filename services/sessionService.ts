@@ -23,8 +23,6 @@ export async function getOrCreateSession(userId: string, callSid: string, websoc
       const newSession: NewSession = {
         user_id: userId,
         twilio_call_sid: callSid,
-        twilio_conversation_sid: null,
-        twilio_participant_sid: null,
         websocket_id: websocketId,
         twilio_query: twilioQuery || null,
       };

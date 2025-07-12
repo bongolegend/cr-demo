@@ -9,6 +9,7 @@ import { combineUserMessagesSinceLastAssistant, handleInterrupt } from "./servic
 import { respondToUser, askUserIfDoneTalking } from "./services/conversationExecutionService";
 import { getWelcomeGreeting, getSystemPrompt } from "./services/systemPromptService";
 import { getSessionWithUserByCallSid, updateSession } from "./services/sessionService";
+import { summarizeConversation } from "./services/historyService";
 
 dotenv.config();
 
@@ -162,10 +163,12 @@ fastify.register(async function (fastify) {
           break;
       }
     });
-    ws.on("close", () => {
+    ws.on("close", async () => {
       console.log("WebSocket connection closed");
       if (ws.callSid) {
         activeProcessing.delete(ws.callSid);
+        // Summarize the conversation when websocket closes
+        await summarizeConversation(ws.callSid);
       }
     });
   });
