@@ -27,7 +27,8 @@ CREATE TABLE sessions (
     twilio_call_sid VARCHAR(50),
     twilio_conversation_sid VARCHAR(50),
     twilio_participant_sid VARCHAR(50),
-    websocket_id VARCHAR(100),
+    websocket_id VARCHAR(100) NULL,
+    twilio_query JSONB DEFAULT '{}'::jsonb,
     conversation JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -39,6 +40,7 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_sessions_twilio_call_sid ON sessions(twilio_call_sid);
 CREATE INDEX idx_sessions_websocket_id ON sessions(websocket_id);
+CREATE INDEX idx_sessions_twilio_query ON sessions USING GIN(twilio_query);
 
 -- Create triggers to automatically update updated_at
 CREATE TRIGGER update_users_updated_at 

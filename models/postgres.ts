@@ -18,6 +18,7 @@ export interface SessionsTable {
   twilio_conversation_sid: string | null;
   twilio_participant_sid: string | null;
   websocket_id: string | null;
+  twilio_query: any | null; // JSONB - Twilio query parameters
   conversation: any[] | null; // JSONB array - manually set, not auto-generated
   created_at: Generated<Date>;
   updated_at: Generated<Date>;

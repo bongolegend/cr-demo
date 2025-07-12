@@ -5,10 +5,11 @@ import { Session, NewSession, SessionUpdate } from '../models/postgres';
  * Get or create a session for a user and call
  * @param userId - The user's ID
  * @param callSid - The Twilio call SID
- * @param websocketId - The WebSocket connection ID
+ * @param websocketId - The WebSocket connection ID (can be null)
+ * @param twilioQuery - The Twilio query parameters (optional)
  * @returns The session object
  */
-export async function getOrCreateSession(userId: string, callSid: string, websocketId: string): Promise<Session> {
+export async function getOrCreateSession(userId: string, callSid: string, websocketId: string | null, twilioQuery?: any): Promise<Session> {
   try {
     // Try to find existing session
     let session = await db
@@ -25,6 +26,7 @@ export async function getOrCreateSession(userId: string, callSid: string, websoc
         twilio_conversation_sid: null,
         twilio_participant_sid: null,
         websocket_id: websocketId,
+        twilio_query: twilioQuery || null,
       };
       
       const result = await db
@@ -59,6 +61,38 @@ export async function getSessionByCallSid(callSid: string): Promise<Session | nu
     return session as Session | null;
   } catch (error) {
     console.error('Error getting session by call SID:', error);
+    return null;
+  }
+}
+
+/**
+ * Get a session with user information by call SID
+ * @param callSid - The Twilio call SID
+ * @returns The session object with user info or null if not found
+ */
+export async function getSessionWithUserByCallSid(callSid: string): Promise<(Session & { user: any }) | null> {
+  try {
+    const session = await db
+      .selectFrom('sessions')
+      .innerJoin('users', 'sessions.user_id', 'users.id')
+      .selectAll('sessions')
+      .select(['users.id as user_id', 'users.phone_number', 'users.full_name', 'users.email'])
+      .where('sessions.twilio_call_sid', '=', callSid)
+      .executeTakeFirst();
+    
+    if (!session) return null;
+    
+    return {
+      ...session,
+      user: {
+        id: session.user_id,
+        phone_number: session.phone_number,
+        full_name: session.full_name,
+        email: session.email
+      }
+    } as (Session & { user: any });
+  } catch (error) {
+    console.error('Error getting session with user by call SID:', error);
     return null;
   }
 }
@@ -199,6 +233,48 @@ export async function deleteSessionsByUserId(userId: string): Promise<number> {
     return result.length;
   } catch (error) {
     console.error('Error deleting sessions by user ID:', error);
+    throw error;
+  }
+} 
+
+/**
+ * Get Twilio query parameters from a session
+ * @param sessionId - The session's ID
+ * @returns The Twilio query parameters or null
+ */
+export async function getTwilioQueryParams(sessionId: string): Promise<any | null> {
+  try {
+    const session = await db
+      .selectFrom('sessions')
+      .select('twilio_query')
+      .where('id', '=', sessionId)
+      .executeTakeFirst();
+    
+    return session?.twilio_query || null;
+  } catch (error) {
+    console.error('Error getting Twilio query params:', error);
+    return null;
+  }
+}
+
+/**
+ * Update Twilio query parameters for a session
+ * @param sessionId - The session's ID
+ * @param twilioQuery - The Twilio query parameters
+ * @returns The updated session object
+ */
+export async function updateTwilioQueryParams(sessionId: string, twilioQuery: any): Promise<Session> {
+  try {
+    const result = await db
+      .updateTable('sessions')
+      .set({ twilio_query: twilioQuery })
+      .where('id', '=', sessionId)
+      .returningAll()
+      .executeTakeFirst();
+    
+    return result as Session;
+  } catch (error) {
+    console.error('Error updating Twilio query params:', error);
     throw error;
   }
 } 
