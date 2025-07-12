@@ -56,24 +56,25 @@ fastify.register(async function (fastify) {
             console.error("ws.callSid is undefined");
             break;
           }
+          const existingProcessing = activeProcessing.get(ws.callSid);
+          if (existingProcessing) {
+            console.log("Cancelling previous processing...");
+            existingProcessing.cancelled = true;
+          }
+          const processingToken = { cancelled: false };
+          activeProcessing.set(ws.callSid, processingToken);
+          
           const sessionData = await getSessionByCallSid(ws.callSid);
           if (sessionData && sessionData.conversation) {
             sessionData.conversation = [...sessionData.conversation, {
               role: "user",
               content: message.voicePrompt,
             }];
-            const existingProcessing = activeProcessing.get(ws.callSid);
-            if (existingProcessing) {
-              console.log("Cancelling previous processing...");
-              existingProcessing.cancelled = true;
-            }
-            const processingToken = { cancelled: false };
-            activeProcessing.set(ws.callSid, processingToken);
             const combinedConversation = await combineUserMessagesSinceLastAssistant(sessionData);
             const userDone = await isUserDoneTalking(combinedConversation);
             if (!userDone) {
-              console.log("Waiting 6 seconds...");
-              for (let i = 6; i > 0; i--) {
+              console.log("Waiting 3 seconds...");
+              for (let i = 3; i > 0; i--) {
                 if (processingToken.cancelled) {
                   console.log("Processing cancelled, stopping countdown");
                   return;
@@ -81,8 +82,6 @@ fastify.register(async function (fastify) {
                 console.log(`${i} seconds...`);
                 await new Promise(resolve => setTimeout(resolve, 1000));
               }
-              await askUserIfDoneTalking(ws, sessionData);
-              break;
             }
             respondToUser(sessionData, ws, processingToken);
           } else {

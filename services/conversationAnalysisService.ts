@@ -32,10 +32,12 @@ Your task: Determine if the user is done talking after the coach's most recent q
 
 Rules:
 - If the user sounds like they are mid-sentence, return 0 (user is not done)
+- If the user didn't finish answering the question, return 0 (user is not done)
 - If the user is saying lots of filler words, like "um", "like", "you know", "you know what", etc., return 0 (user is not done)
 - If the user's response ends with "that's all" or similar phrases, return 1 (user is done)
-- If the user's response is just a single word, like "yes", "no", "maybe", etc., return 1 (user is done)
+- If the user's response is just a single word, like "ok", "yeah", "yes", "no", "maybe", etc., return 1 (user is done)
 - If the user's response sounds like a complete idea, spanning multiple sentences, return 1 (user is done)
+- Any other case, return 1 (user is done)
 
 Return ONLY: 1 (user done) or 0 (user not done)`
         },
